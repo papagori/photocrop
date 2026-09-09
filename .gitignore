@@ -1,0 +1,40 @@
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+htmlcov/
+# Virtual environments and local configuration
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+# Packaging / PyInstaller outputs
+build/
+dist/
+*.spec
+*.egg-info/
+.eggs/
+# Generated tests, exports and independent backups
+test-results/
+4x3_cropped/
+backups/
+# Temporary files and logs
+*.tmp
+*.temp
+*.log
+*.bak
+*.swp
+*~
+# Editors and OS metadata
+.idea/
+.vscode/
+.vs/
+.DS_Store
+Thumbs.db
+Desktop.ini
