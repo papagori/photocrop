@@ -5,6 +5,10 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+.cache/
+.ipynb_checkpoints/
 .coverage*
 htmlcov/
 # Virtual environments and local configuration
@@ -24,6 +28,10 @@ dist/
 test-results/
 4x3_cropped/
 backups/
+*.zip
+*.7z
+*.tar
+*.tar.gz
 # Temporary files and logs
 *.tmp
 *.temp
@@ -35,6 +43,9 @@ backups/
 .idea/
 .vscode/
 .vs/
+*.iml
+*.suo
+*.user
 .DS_Store
 Thumbs.db
 Desktop.ini

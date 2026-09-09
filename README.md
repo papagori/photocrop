@@ -1,123 +1,137 @@
-# Photo Crop — V2
+# PhotoCropV2
 
-Application desktop Windows en Python / PySide6 : recadrage centré selon l'orientation EXIF, ratio au choix, redimensionnement facultatif et export JPEG de qualité maximale.
+A lightweight Python desktop app for batch cropping and resizing images with selectable aspect ratios, standard output sizes, drag-and-drop support, and high-quality JPEG export.
 
-## Tester directement
+Built with **PySide6** and **Pillow**, with Windows as the primary platform. Processing runs in a background thread so the interface remains responsive.
 
-Double-cliquer sur **`dist\PhotoCropV2.exe`**. Cet exécutable Windows x64 embarque Python, Qt et Pillow : aucune installation nécessaire. Son démarrage peut prendre quelques secondes pendant l'extraction des composants.
+## Features
 
-1. Déposer plusieurs images ou un dossier, ou cliquer dans la zone centrale pour **Add files…** / **Add folder…**.
-2. Cocher **Include subfolders** avant l'ajout pour inclure les sous-dossiers.
-3. Choisir **Aspect Ratio**, **Output Size** et éventuellement **Allow Upscaling**.
-4. Cliquer **Process** ; la liste et le journal affichent les dimensions, les sorties et les erreurs individuelles.
+- Drag and drop multiple files or folders, or click to open a file/folder picker.
+- Optional recursive folder scanning, duplicate detection, and per-image error reporting.
+- EXIF-aware orientation and centered cropping: portrait images automatically use the inverse ratio.
+- Aspect ratios: Original / No Crop, 1:1, 4:3, 3:2, 5:4, 16:9, 16:10, and 21:9.
+- Original Resolution, long-edge sizes, and exact photo/video resolution presets.
+- No upscaling by default; optional **Allow Upscaling**.
+- A single high-quality LANCZOS resize after cropping, when requested.
+- JPEG export with `quality=100`, `subsampling=0`, and `optimize=True`.
+- ICC profiles and relevant EXIF metadata preserved where supported; EXIF orientation removed after applying it.
+- Unicode paths supported, including accents, Japanese characters, and spaces.
+- Originals are never overwritten; output filename collisions receive numbered suffixes.
 
-Les valeurs initiales restent **4:3**, **Original Resolution**, agrandissement désactivé. Le comportement initial est donc conservé par défaut. **Clear** vide uniquement la liste ; les réglages restent sélectionnés. Les menus sont verrouillés pendant le batch et ses réglages sont figés dans le worker.
+## Requirements
 
-Les JPEG sont toujours exportés dans **`4x3_cropped`**, à côté de chaque source, y compris avec les nouveaux ratios. Ce nom historique est conservé. Les originaux ne sont jamais écrasés. Les collisions produisent `nom_2.jpg`, `nom_3.jpg`, etc. Relancer Process crée de nouvelles copies. Les dossiers de sortie sont exclus de la recherche automatique.
+- Python **3.10 or newer**; Windows x64 recommended.
+- **Pillow** and **PySide6**, specified in [requirements.txt](requirements.txt).
+- **PyInstaller** is needed only to build an executable; see [requirements-dev.txt](requirements-dev.txt).
 
-## Aspect Ratio
+No database, account, or network connection is needed to process images. Dependency installation requires access to the Python package index.
 
-Choix : **Original / No Crop**, **1:1**, **4:3**, **3:2**, **5:4**, **16:9**, **16:10**, **21:9**.
+## Installation
 
-L'orientation EXIF est appliquée avant la décision. Une image plus haute que large est portrait ; sinon, elle est paysage. Le ratio est inversé pour les portraits : 4:3 → 3:4, 16:9 → 9:16, etc. Un carré est traité comme paysage.
-
-**Original / No Crop** conserve l'image entière après orientation. Avec **Original Resolution**, aucun resize n'est effectué. Avec un preset de grand côté, la taille de sortie est ajustée avec l'arrondi au pixel indispensable.
-
-## Output Size
-
-Le menu est séparé en groupes dont les titres ne sont pas sélectionnables.
-
-| Groupe | Choix |
-| --- | --- |
-| Original Resolution | Conserver toute la résolution restante après crop |
-| Long Edge | 1K / 1024, 2K / 2048, 3K / 3072, 4K / 4096, 5K / 5120, 6K / 6144, 8K / 8192 px sur le grand côté |
-| Photo Presets | 1200 × 800, 1500 × 1000, 2048 × 1365, 2400 × 1600, 3000 × 2000, 4000 × 3000, 4500 × 3000, 5000 × 3333, 6000 × 4000, 6000 × 4500 px |
-| Video / Screen Presets | 1920 × 1080, 2560 × 1440, 3840 × 2160, 7680 × 4320 px |
-
-**Long Edge** respecte le ratio choisi indépendamment. Le grand côté est exactement celui annoncé et le petit côté est arrondi au pixel le plus proche. Par exemple, 4096 px donne 4096 × 3072 en 4:3 et 4096 × 2304 en 16:9 ; les dimensions sont inversées en portrait. « 4K / 4096 px » est distinct du preset écran **3840 × 2160**.
-
-Un **preset exact impose son ratio** et le sélectionne automatiquement dans Aspect Ratio, qui devient temporairement non modifiable. Par exemple : 3000 × 2000 → 3:2, 4000 × 3000 → 4:3, 3840 × 2160 → 16:9. Revenir à Original Resolution ou Long Edge permet de choisir librement le ratio. Les dimensions annoncées sont inversées pour les portraits.
-
-2048 × 1365 et 5000 × 3333 sont seulement **approximativement 3:2** : le menu affiche temporairement `2048:1365 (approx. 3:2)` ou `5000:3333 (approx. 3:2)`. Le traitement utilise leur ratio réel pour garantir exactement la sortie annoncée. En quittant ces presets, Aspect Ratio revient à 3:2.
-
-**Allow Upscaling** est désactivé par défaut. Si la taille demandée dépasse celle disponible **après crop**, le resize est ignoré : l'image garde toute sa résolution recadrée et la liste affiche **upscaling avoided**. Cela prime sur les dimensions d'un preset exact. Cocher l'option autorise l'agrandissement. Elle est inactive pour Original Resolution.
-
-## Géométrie et qualité
-
-Ordre : lecture → orientation EXIF → orientation réelle → crop centré → éventuel resize unique → JPEG.
-
-Pour les ratios standards, réduits à `a:b`, le crop conserve `a*k × b*k`, avec `k = min(largeur // a, hauteur // b)`. C'est le plus grand rectangle entier de ratio exact. Ainsi **6000 × 4000 → 5332 × 3999** en 4:3, sans resize supplémentaire en Original Resolution. Un pixel de différence entre les marges est possible.
-
-Pour les deux presets approximatifs, imposer des multiples entiers de 2048:1365 ou 5000:3333 ferait perdre inutilement une grande partie de l'image. Le crop conserve donc le plus grand rectangle arrondi au pixel. Lors du resize final, une correction de bord inférieure à un pixel ajuste le ratio exact sans étirement. Si l'agrandissement est refusé, on conserve ce rectangle entier : son ratio peut différer de la cible d'un arrondi d'un pixel.
-
-Le resize utilise **`Image.Resampling.LANCZOS`**, en un seul appel depuis l'image recadrée, sans réduction intermédiaire (`reducing_gap=None`). Les tailles arrondies peuvent nécessiter une correction sous-pixel des bords pour éviter une déformation. Les palettes et images binaires sont converties avant filtrage afin d'éviter le filtre NEAREST forcé par Pillow. La transparence est composée sur blanc avant filtrage et export.
-
-JPEG : **`quality=100`, `subsampling=0`, `optimize=True`**. JPEG reste avec pertes et l'export réencode aussi les sources déjà au bon ratio. Les fichiers peuvent être volumineux. Il n'y a ni bordures ajoutées ni étirement.
-
-Le profil ICC est conservé lorsque l'espace de couleur reste compatible ; RGB, gris et CMYK restent dans leur espace. LAB est converti vers sRGB avec gestion de couleur. Les EXIF pertinents sont conservés autant que Pillow le permet, l'orientation est supprimée et les dimensions existantes sont mises à jour **après resize**. Les aperçus intégrés et métadonnées spécifiques à certains formats ne sont pas garantis.
-
-Entrées : JPG/JPEG, PNG, TIFF/TIF, WEBP. Les images animées, TIFF multipages et images 16/32 bits sont signalées en erreur pour éviter une perte silencieuse de pages ou de tonalités. Les images trop petites pour un crop exact standard sont signalées ; No Crop accepte aussi les très petites images. Une erreur ne bloque pas le reste du batch. Les accents, le japonais et les espaces dans les chemins sont pris en charge.
-
-La recherche et le traitement tournent dans un QThread. Attendre la fin avant de fermer l'application. Les chemins complets sont disponibles dans les info-bulles et copiables depuis le journal.
-
-## Sauvegarde de la version initiale
-
-Avant tout changement fonctionnel, les 9 tests initiaux ont été exécutés avec succès, puis le dépôt Git a été initialisé et le `.gitignore` complété.
-
-- Commit initial : **`656aa11`** ; tag : **`v1.0-baseline`**.
-- ZIP indépendant : **`backups/PhotoCrop4x3-v1.0-656aa11.zip`**, contenant les sources, tests, documentation, ancien EXE et versions exactes des dépendances. Git, environnements virtuels, dossiers de build et caches sont exclus.
-- Le ZIP a été relu intégralement et ses fichiers comparés à un manifeste SHA-256 intégré.
-
-Pour restaurer indépendamment : extraire le ZIP dans un autre dossier et lancer son `dist\PhotoCrop4x3.exe`, ou recréer l'environnement depuis `requirements-frozen.txt`.
-
-Pour examiner l'ancienne version Git sans changer votre branche actuelle :
+In PowerShell:
 
 ```powershell
-git show v1.0-baseline:cropper/processing.py
-git archive --format=zip --output=backups/source-v1-restored.zip v1.0-baseline
-```
-
-Pour travailler sur cette version, après avoir sauvegardé toute modification courante : `git switch -c restore-v1 v1.0-baseline`. Aucun reset destructif n'est nécessaire. L'archive Git ne contient pas l'EXE ; le ZIP de sauvegarde complet le contient.
-
-## Lancer depuis les sources
-
-Python **3.10 ou plus récent**, Windows x64 conseillé :
-
-```powershell
+git clone https://github.com/papagori/photocrop.git
+cd photocrop
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+## Run
+
+```powershell
 .\.venv\Scripts\python.exe main.py
 ```
 
-## Tester et compiler
+## Basic usage
+
+1. Drop images or a folder into the central area, or click it and choose **Add files…** or **Add folder…**.
+2. Enable **Include subfolders** before adding a folder if recursive scanning is needed.
+3. Choose **Aspect Ratio** and **Output Size**. The defaults are **4:3**, **Original Resolution**, and upscaling disabled.
+4. Click **Process**. Review final dimensions, output paths, and any errors in the file list and log.
+5. Use **Clear** to empty the list. This does not delete images or reset your selected settings.
+
+Outputs are saved in a **`4x3_cropped`** folder beside each source image. This historical folder name is used for all selected ratios. Files from different source directories each receive their own output folder. Existing output names become `name_2.jpg`, `name_3.jpg`, and so on. Processing the same batch again creates new copies.
+
+Generated output folders are excluded from folder scanning. Unsupported extensions and duplicates are skipped. A corrupt image does not stop the batch. Wait for the current operation to finish before closing the application.
+
+## Crop and output settings
+
+EXIF orientation is applied before deciding whether an image is landscape or portrait. Square images are treated as landscape. For example, selecting 4:3 produces 4:3 for landscape and 3:4 for portrait; selecting 16:9 produces 16:9 or 9:16.
+
+**Original / No Crop** keeps the original aspect ratio after orientation, subject to integer rounding if resizing. **Original Resolution** performs no resize: only the chosen crop is applied.
+
+| Output group | Available sizes |
+| --- | --- |
+| Original Resolution | All remaining pixels after cropping |
+| Long Edge | 1K / 1024, 2K / 2048, 3K / 3072, 4K / 4096, 5K / 5120, 6K / 6144, 8K / 8192 px |
+| Photo Presets | 1200 × 800, 1500 × 1000, 2048 × 1365, 2400 × 1600, 3000 × 2000, 4000 × 3000, 4500 × 3000, 5000 × 3333, 6000 × 4000, 6000 × 4500 px |
+| Video / Screen Presets | 1920 × 1080, 2560 × 1440, 3840 × 2160, 7680 × 4320 px |
+
+**Long Edge** respects the independently selected aspect ratio. The longest side has the stated pixel length, while the shorter side is rounded to the nearest pixel. For example, 4096 px produces 4096 × 3072 at 4:3 or 4096 × 2304 at 16:9, with dimensions reversed for portrait. The 4096 px long-edge preset is distinct from the 3840 × 2160 screen preset.
+
+**Exact presets** automatically select and lock their corresponding aspect ratio. For example, 3000 × 2000 selects 3:2, and 4000 × 3000 selects 4:3. Dimensions are reversed for portrait images. Switch back to Original Resolution or Long Edge to choose an aspect ratio freely.
+
+2048 × 1365 and 5000 × 3333 are only approximately 3:2. Their exact ratios appear temporarily in the Aspect Ratio menu and are used for the announced output dimensions. Leaving these presets returns the menu to 3:2.
+
+**Allow Upscaling** is off by default. When the requested dimensions exceed the image size **after cropping**, resizing is skipped and the full cropped resolution is retained. The list reports **upscaling avoided**. This rule takes precedence over exact preset dimensions. Enable the option to permit enlargement.
+
+## Image quality and limitations
+
+The pipeline is: read → apply EXIF orientation → determine orientation → centered crop → optional single resize → JPEG export. Images are not stretched or padded with borders.
+
+Standard ratios use the largest exact integer-ratio rectangle. For example, 6000 × 4000 becomes **5332 × 3999** at 4:3 with Original Resolution. Centered margins may differ by one pixel. Already-correct dimensions are not cropped again.
+
+For the two approximate-3:2 presets, the crop is rounded to integer pixels to avoid excessive pixel loss. During resizing, a fractional edge correction matches the exact output ratio. If upscaling is blocked, the retained integer crop can differ from the requested ratio by a one-pixel rounding. Long-edge rounding can also require an edge correction during resampling.
+
+Resizing uses `Image.Resampling.LANCZOS` in a single call from the cropped image, with `reducing_gap=None`. Palette and bilevel images are converted before filtering. Transparency is composited onto white before JPEG export.
+
+JPEG is **lossy even at quality 100**. Images are re-encoded even when cropping and resizing are unnecessary. Outputs can be large. Compatible ICC profiles are retained; RGB, grayscale, and CMYK keep their color spaces, while LAB is color-managed into sRGB. Relevant EXIF fields are preserved where Pillow supports them, and existing dimension fields are updated after resizing. Embedded previews and format-specific metadata are not guaranteed to survive.
+
+Supported inputs: **JPG/JPEG, PNG, TIFF/TIF, and WEBP**. Animated images, multipage TIFFs, and 16/32-bit images are reported as errors to avoid silently dropping pages or making an implicit tone-mapping choice. Images too small for an exact standard-ratio crop are also reported; No Crop accepts very small images.
+
+## Tests
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+The suite covers crop geometry, all ratio and output presets, EXIF orientation, metadata, image formats, transparency, Unicode paths, collisions, corruption, no-upscaling behavior, single-pass resizing, Qt drag-and-drop events, menu synchronization, and background batches. See [TEST_REPORT.md](TEST_REPORT.md).
+
+## Build a standalone Windows executable
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name PhotoCropV2 main.py
 ```
 
-Ou `powershell -ExecutionPolicy Bypass -File .\build.ps1`. Résultat : **`dist\PhotoCropV2.exe`**. Compiler sous Windows pour obtenir l'EXE Windows, non signé.
+The result is **`dist\PhotoCropV2.exe`**. Build on Windows to produce a Windows executable. Python is not required on the machine running that executable. The executable is unsigned and can take a few seconds to start while extracting its components.
 
-Contrôle facultatif du binaire compilé, sans interaction avec le bureau :
+Alternatively, run `powershell -ExecutionPolicy Bypass -File .\build.ps1`. This prepares dependencies, runs the tests, builds the executable, and verifies three batches in the compiled application.
+
+To run the compiled verification explicitly:
 
 ```powershell
 Start-Process -FilePath .\dist\PhotoCropV2.exe -ArgumentList '--self-test', 'test-results\compiled-v2.json' -WindowStyle Hidden -Wait
 Get-Content test-results\compiled-v2.json
 ```
 
-Ce mode explicite crée des images synthétiques temporaires, pilote trois batches Qt, vérifie les JPEG et écrit un rapport JSON avec `passed: true` et `frozen: true`, ainsi qu'une capture PNG. Sans argument, l'application démarre normalement.
+This opt-in mode uses temporary synthetic images and the Qt offscreen plugin. It writes a JSON report (`passed: true`, `frozen: true` on success) and a PNG capture. Normal launching does not run these checks. Executables, build outputs, backups, virtual environments, and generated test files are not tracked in this repository.
 
-## Organisation
+## Project structure
 
-- `main.py` : lancement normal ou contrôle explicite de compilation.
-- `cropper/gui.py` : interface, synchronisation des menus, worker et progression.
-- `cropper/settings.py` : catalogue partagé et options immuables de traitement.
-- `cropper/geometry.py` : calculs de crop et de dimensions de sortie.
-- `cropper/discovery.py` : recherche, exclusions et dédoublonnage.
-- `cropper/processing.py` : pipeline EXIF / crop / resize et erreurs individuelles.
-- `cropper/export.py` : couleur, métadonnées et écriture JPEG exclusive.
-- `cropper/smoke.py` : contrôle d'intégration du binaire autonome.
-- `tests/` : tests sans dépendance de test supplémentaire.
+- `main.py`: application entry point and optional compiled verification.
+- `cropper/gui.py`: Qt interface, settings synchronization, and worker thread.
+- `cropper/settings.py`: shared preset catalog and immutable processing options.
+- `cropper/geometry.py`: crop and output-size calculations.
+- `cropper/discovery.py`: input discovery, filtering, and deduplication.
+- `cropper/processing.py`: image processing pipeline and per-file error handling.
+- `cropper/export.py`: color conversion, metadata, and exclusive JPEG output creation.
+- `cropper/smoke.py`: standalone build verification.
+- `tests/`: automated tests using Python's standard `unittest` module.
 
-Références : [resize Pillow](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize), [options JPEG](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#jpeg), [PyInstaller](https://pyinstaller.org/en/stable/usage.html).
+## License
+
+PhotoCropV2 is licensed under the **GNU General Public License, version 3.0 only** (`GPL-3.0-only`). The complete official license text is provided in [LICENSE](LICENSE).
+
+Third-party dependencies are distributed under their respective licenses.
