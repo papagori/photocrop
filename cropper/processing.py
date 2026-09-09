@@ -1,20 +1,12 @@
-"""EXIF-aware exact-ratio cropping, with no pixel resampling."""
+"""EXIF orientation, centered crop, optional single resize, and JPEG export."""
 from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from .export import export_jpeg
-
-
-def crop_box(width, height):
-    a, b = (4, 3) if width >= height else (3, 4)
-    k = min(width // a, height // b)
-    if k < 1:
-        raise ValueError('Image too small for an exact 4:3 or 3:4 integer crop.')
-    w, h = a * k, b * k
-    left, top = (width - w) // 2, (height - h) // 2
-    return left, top, left + w, top + h
+from .export import export_jpeg, jpeg_pixels
+from .geometry import crop_box, output_size, resampling_box
+from .settings import ProcessingOptions
 
 
 @dataclass
@@ -24,9 +16,11 @@ class Result:
     original_size: tuple[int, int] | None = None
     size: tuple[int, int] | None = None
     error: str = ''
+    cropped_size: tuple[int, int] | None = None
+    upscaling_blocked: bool = False
 
 
-def process_image(source):
+def process_image(source, options=ProcessingOptions()):
     source = Path(source)
     try:
         with Image.open(source) as original:
@@ -35,21 +29,35 @@ def process_image(source):
             image = ImageOps.exif_transpose(original)
             image.load()
             before = image.size
-            box = crop_box(*before)
+            box = crop_box(*before, options.effective_ratio, approximate=options.output.approximate)
             exif = image.getexif()
             exif.pop(274, None)
             cropped = image if box == (0, 0, *before) else image.crop(box)
+            final_size, blocked = output_size(cropped.size, options, portrait=before[1] > before[0])
+            final = cropped
+            if final_size != cropped.size:
+                # Convert palette/bilevel pixels before LANCZOS: Pillow otherwise
+                # forces NEAREST. Also flatten alpha before filtering onto white.
+                pixels, icc = jpeg_pixels(cropped)
+                final = pixels.resize(final_size, Image.Resampling.LANCZOS,
+                                      box=resampling_box(pixels.size, final_size), reducing_gap=None)
+                final.info = dict(cropped.info)
+                if icc:
+                    final.info['icc_profile'] = icc
+                else:
+                    final.info.pop('icc_profile', None)
             # Remove TIFF storage/layout tags, which no longer describe the JPEG.
             for tag in (254, 255, 258, 259, 262, 266, 273, 277, 278, 279, 284,
                         317, 320, 322, 323, 324, 325, 330, 338, 339, 513, 514):
                 exif.pop(tag, None)
-            for tag, value in ((256, cropped.width), (257, cropped.height)):
+            for tag, value in ((256, final.width), (257, final.height)):
                 if tag in exif:
                     exif[tag] = value
             if 34665 in exif:
                 details = exif.get_ifd(34665)
-                details[40962], details[40963] = cropped.size
-            output = export_jpeg(cropped, source, exif)
-            return Result(source, output, before, cropped.size)
+                details[40962], details[40963] = final.size
+            output = export_jpeg(final, source, exif)
+            return Result(source, output, before, final.size, cropped_size=cropped.size,
+                          upscaling_blocked=blocked)
     except Exception as exc:
         return Result(source, error=f'{type(exc).__name__}: {exc}')

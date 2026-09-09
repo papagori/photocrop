@@ -2,13 +2,14 @@
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QColor, QCursor
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QMainWindow, QMenu, QPlainTextEdit, QProgressBar, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView,
 )
 
 from .discovery import discover
 from .processing import process_image
+from .settings import ASPECT_RATIOS, PRESETS, ProcessingOptions
 
 
 class Worker(QThread):
@@ -16,9 +17,10 @@ class Worker(QThread):
     progress = Signal(int, int)
     result = Signal(int, object)
 
-    def __init__(self, paths, recursive=None, existing=(), parent=None):
+    def __init__(self, paths, recursive=None, existing=(), parent=None, options=ProcessingOptions()):
         super().__init__(parent)
         self.paths, self.recursive, self.existing = paths, recursive, existing
+        self.options = options
 
     def run(self):
         if self.recursive is not None:
@@ -26,7 +28,7 @@ class Worker(QThread):
         else:
             for index, path in enumerate(self.paths):
                 self.progress.emit(index + 1, len(self.paths))
-                self.result.emit(index, process_image(path))
+                self.result.emit(index, process_image(path, self.options))
 
 
 class DropArea(QFrame):
@@ -40,7 +42,7 @@ class DropArea(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName('Add files or folder')
-        self.setMinimumHeight(180)
+        self.setMinimumHeight(145)
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title = QLabel('Drop files or folder here')
@@ -79,15 +81,15 @@ class MainWindow(QMainWindow):
         self.busy = False
         self.skipped = self.processed = self.errors = 0
         self.scan_errors = 0
-        self.setWindowTitle('4:3 Photo Crop')
-        self.resize(920, 760)
-        self.setMinimumSize(660, 620)
+        self.setWindowTitle('Photo Crop — v2.0')
+        self.resize(980, 860)
+        self.setMinimumSize(780, 760)
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
         layout.setContentsMargins(30, 24, 30, 24)
         layout.setSpacing(14)
-        title = QLabel('4:3 Photo Crop')
+        title = QLabel('Photo Crop')
         title.setObjectName('title')
         layout.addWidget(title)
         subtitle = QLabel('Centered crop · Automatic orientation · Maximum JPEG quality')
@@ -108,6 +110,47 @@ class MainWindow(QMainWindow):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self.table, 1)
+        settings = QHBoxLayout()
+        aspect_column = QVBoxLayout()
+        aspect_label = QLabel('Aspect Ratio:')
+        self.aspect = QComboBox()
+        self.aspect.setAccessibleName('Aspect Ratio')
+        for label, ratio in ASPECT_RATIOS.items():
+            self.aspect.addItem(label, ratio)
+        self.aspect.setCurrentText('4:3')
+        aspect_label.setBuddy(self.aspect)
+        aspect_column.addWidget(aspect_label)
+        aspect_column.addWidget(self.aspect)
+        size_column = QVBoxLayout()
+        size_label = QLabel('Output Size:')
+        self.output_size = QComboBox()
+        self.output_size.setAccessibleName('Output Size')
+        self.output_size.setMaxVisibleItems(22)
+        group = ''
+        for preset in PRESETS:
+            if preset.group != group:
+                group = preset.group
+                self.output_size.insertSeparator(self.output_size.count())
+                self.output_size.addItem(group)
+                self.output_size.model().item(self.output_size.count() - 1).setEnabled(False)
+            self.output_size.addItem(preset.label, preset)
+        size_label.setBuddy(self.output_size)
+        size_column.addWidget(size_label)
+        size_column.addWidget(self.output_size)
+        settings.addLayout(aspect_column, 2)
+        settings.addLayout(size_column, 3)
+        layout.addLayout(settings)
+        self.upscaling = QCheckBox('Allow Upscaling')
+        self.upscaling.setToolTip('Allow enlargement beyond the cropped image resolution.')
+        layout.addWidget(self.upscaling)
+        self.summary = QLabel()
+        self.summary.setObjectName('muted')
+        self.summary.setWordWrap(True)
+        layout.addWidget(self.summary)
+        self.output_size.currentIndexChanged.connect(self.output_changed)
+        self.aspect.currentIndexChanged.connect(self.update_summary)
+        self.upscaling.toggled.connect(self.update_summary)
+        self.output_changed()
         actions = QHBoxLayout()
         self.clear = QPushButton('Clear')
         self.clear.clicked.connect(self.clear_all)
@@ -151,7 +194,48 @@ class MainWindow(QMainWindow):
             QMenu { background: #263449; padding: 6px; }
             QMenu::item { padding: 8px 24px; }
             QMenu::item:selected { background: #2563eb; }
+            QComboBox { background: #233047; border: 1px solid #506079; border-radius: 6px; padding: 8px 10px; }
+            QComboBox:disabled { color: #a0aec0; background: #1d293b; }
+            QComboBox QAbstractItemView { background: #233047; selection-background-color: #2563eb; min-width: 350px; }
         ''')
+
+    def current_options(self):
+        return ProcessingOptions(self.aspect.currentData(), self.output_size.currentData(),
+                                 self.upscaling.isChecked())
+
+    def output_changed(self):
+        preset = self.output_size.currentData()
+        if preset is None:
+            return
+        self.aspect.blockSignals(True)
+        # Extra ratio labels exist only for exact, approximate-3:2 presets.
+        while self.aspect.count() > len(ASPECT_RATIOS):
+            self.aspect.removeItem(self.aspect.count() - 1)
+            self.aspect.setCurrentText('3:2')
+        if preset.dimensions:
+            index = self.aspect.findText(preset.aspect_label)
+            if index < 0:
+                self.aspect.addItem(preset.aspect_label, preset.ratio)
+                index = self.aspect.count() - 1
+            self.aspect.setCurrentIndex(index)
+        self.aspect.blockSignals(False)
+        self.aspect.setEnabled(not self.busy and preset.dimensions is None)
+        self.aspect.setToolTip('Exact preset sets this ratio. Select Original Resolution or Long Edge to choose freely.'
+                               if preset.dimensions else 'Automatically reversed for portrait images.')
+        self.upscaling.setEnabled(not self.busy and preset.key != 'original')
+        self.update_summary()
+
+    def update_summary(self):
+        preset = self.output_size.currentData()
+        if preset is None:
+            return
+        parts = [self.aspect.currentText(), preset.label]
+        if preset.dimensions:
+            parts.append('Exact preset ratio · portrait dimensions reversed')
+        if preset.key != 'original':
+            parts.append('Upscaling allowed' if self.upscaling.isChecked() else 'No upscaling')
+        parts.append('JPEG maximum quality')
+        self.summary.setText(' · '.join(parts))
 
     def choose_input(self):
         menu = QMenu(self)
@@ -169,8 +253,9 @@ class MainWindow(QMainWindow):
 
     def set_busy(self, value):
         self.busy = value
-        for widget in (self.drop, self.recursive, self.clear):
+        for widget in (self.drop, self.recursive, self.clear, self.output_size):
             widget.setEnabled(not value)
+        self.output_changed()
         self.process.setEnabled(not value and bool(self.paths))
 
     def add_paths(self, paths):
@@ -229,7 +314,9 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         for row in range(len(self.paths)):
             self.table.item(row, 1).setText('Queued')
-        self.worker = Worker(list(self.paths), parent=self)
+        options = self.current_options()
+        self.log.appendPlainText(self.summary.text())
+        self.worker = Worker(list(self.paths), parent=self, options=options)
         self.worker.progress.connect(self.on_progress)
         self.worker.result.connect(self.on_result)
         self.worker.finished.connect(self.finish_processing)
@@ -249,11 +336,19 @@ class MainWindow(QMainWindow):
         else:
             self.processed += 1
             w, h = result.size
-            unchanged = ' · no crop' if result.original_size == result.size else ''
-            item.setText(f'{w} × {h}{unchanged}')
+            details = []
+            if result.original_size == result.cropped_size:
+                details.append('no crop')
+            if result.cropped_size != result.size:
+                details.append('resized')
+            if result.upscaling_blocked:
+                details.append('upscaling avoided')
+            suffix = ' · ' + ', '.join(details) if details else ''
+            item.setText(f'{w} × {h}{suffix}')
             item.setForeground(QColor('#86efac'))
             item.setToolTip(str(result.output))
-            self.log.appendPlainText(str(result.output))
+            self.log.appendPlainText(f'{result.output}\n{result.original_size} → crop {result.cropped_size}'
+                                     f' → {result.size}{suffix}')
         self.progress.setValue(row + 1)
 
     def finish_processing(self):
