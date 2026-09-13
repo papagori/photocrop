@@ -6,7 +6,10 @@ if (-not (Test-Path -LiteralPath '.venv\Scripts\python.exe')) {
 }
 & .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+$previousQtPlatform = $env:QT_QPA_PLATFORM
+$env:QT_QPA_PLATFORM = 'offscreen'
 & .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+$env:QT_QPA_PLATFORM = $previousQtPlatform
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 & .\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name PhotoCropV2 main.py
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }

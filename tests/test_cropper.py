@@ -29,7 +29,7 @@ class ImageTests(unittest.TestCase):
         return path
 
     def test_required_dimensions(self):
-        for size, expected in [((6000, 4000), (5332, 3999)), ((4000, 6000), (3999, 5332)),
+        for size, expected in [((6000, 4000), (5333, 4000)), ((4000, 6000), (4000, 5333)),
                                ((400, 300), (400, 300)), ((300, 400), (300, 400)),
                                ((400, 400), (400, 300))]:
             with self.subTest(size=size):
@@ -50,8 +50,9 @@ class ImageTests(unittest.TestCase):
                 x, y, right, bottom = crop_box(width, height)
                 w, h = right-x, bottom-y
                 a, b = (4, 3) if width >= height else (3, 4)
-                self.assertEqual(w*b, h*a)
-                self.assertTrue(w+a > width or h+b > height)
+                self.assertTrue(w == width or h == height)
+                ratio_error = min(abs(w * b / a - h), abs(h * a / b - w))
+                self.assertLessEqual(ratio_error, 0.5)
                 self.assertLessEqual(abs(x-(width-right)), 1)
                 self.assertLessEqual(abs(y-(height-bottom)), 1)
 
@@ -109,7 +110,7 @@ class ImageTests(unittest.TestCase):
         corrupt.write_bytes(b'not an image')
         self.assertTrue(process_image(corrupt).error)
         tiny = self.make('tiny.png', (2, 2))
-        self.assertTrue(process_image(tiny).error)
+        self.assertFalse(process_image(tiny).error)
         good = process_image(self.make('good.png'))
         self.assertFalse(good.error)
 

@@ -1,6 +1,8 @@
 """Qt interface; discovery and image work run outside the GUI thread."""
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QColor, QCursor
+from PIL import Image, ImageOps
+from PIL.ImageQt import ImageQt
+from PySide6.QtCore import QRectF, Qt, QThread, Signal
+from PySide6.QtGui import QColor, QCursor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QMainWindow, QMenu, QPlainTextEdit, QProgressBar, QPushButton,
@@ -8,8 +10,9 @@ from PySide6.QtWidgets import (
 )
 
 from .discovery import discover
+from .geometry import crop_box, output_size
 from .processing import process_image
-from .settings import ASPECT_RATIOS, PRESETS, ProcessingOptions
+from .settings import ASPECT_RATIOS, ProcessingOptions, presets_for_ratio
 
 
 class Worker(QThread):
@@ -73,6 +76,76 @@ class DropArea(QFrame):
             super().keyPressEvent(event)
 
 
+class PreviewCanvas(QFrame):
+    """Paint an oriented thumbnail with only the cropped-away area darkened."""
+
+    def __init__(self):
+        super().__init__()
+        self.pixmap = None
+        self.source_size = None
+        self.crop = None
+        self.setMinimumSize(260, 190)
+        self.setObjectName('previewCanvas')
+
+    def set_preview(self, pixmap, source_size, crop):
+        self.pixmap, self.source_size, self.crop = pixmap, source_size, crop
+        self.update()
+
+    def clear_preview(self):
+        self.set_preview(None, None, None)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        if not self.pixmap or not self.source_size:
+            painter.setPen(QColor('#718096'))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, 'Select an image to preview')
+            return
+        bounds = QRectF(self.rect().adjusted(10, 10, -10, -10))
+        scaled = self.pixmap.size()
+        scaled.scale(bounds.size().toSize(), Qt.AspectRatioMode.KeepAspectRatio)
+        image_rect = QRectF(0, 0, scaled.width(), scaled.height())
+        image_rect.moveCenter(bounds.center())
+        painter.drawPixmap(image_rect.toRect(), self.pixmap)
+        left, top, right, bottom = self.crop
+        source_width, source_height = self.source_size
+        scale_x = image_rect.width() / source_width
+        scale_y = image_rect.height() / source_height
+        crop_rect = QRectF(image_rect.left() + left * scale_x,
+                           image_rect.top() + top * scale_y,
+                           (right - left) * scale_x, (bottom - top) * scale_y)
+        shade = QColor(0, 0, 0, 165)
+        painter.fillRect(QRectF(image_rect.left(), image_rect.top(),
+                                crop_rect.left() - image_rect.left(), image_rect.height()), shade)
+        painter.fillRect(QRectF(crop_rect.right(), image_rect.top(),
+                                image_rect.right() - crop_rect.right(), image_rect.height()), shade)
+        painter.fillRect(QRectF(crop_rect.left(), image_rect.top(), crop_rect.width(),
+                                crop_rect.top() - image_rect.top()), shade)
+        painter.fillRect(QRectF(crop_rect.left(), crop_rect.bottom(), crop_rect.width(),
+                                image_rect.bottom() - crop_rect.bottom()), shade)
+        painter.setPen(QPen(QColor('#f8fafc'), 1.5))
+        painter.drawRect(crop_rect)
+
+
+class PreviewPanel(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.source_size = None
+        self.pixmap = None
+        self.setObjectName('previewPanel')
+        self.setMinimumWidth(300)
+        layout = QVBoxLayout(self)
+        title = QLabel('Preview')
+        title.setObjectName('sectionTitle')
+        self.canvas = PreviewCanvas()
+        self.details = QLabel('Source: —\nCrop: —\nOutput: —')
+        self.details.setObjectName('previewDetails')
+        layout.addWidget(title)
+        layout.addWidget(self.canvas, 1)
+        layout.addWidget(self.details)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -109,7 +182,12 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().hide()
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        layout.addWidget(self.table, 1)
+        self.table.currentCellChanged.connect(self.preview_selection_changed)
+        content = QHBoxLayout()
+        content.addWidget(self.table, 3)
+        self.preview = PreviewPanel()
+        content.addWidget(self.preview, 2)
+        layout.addLayout(content, 1)
         settings = QHBoxLayout()
         aspect_column = QVBoxLayout()
         aspect_label = QLabel('Aspect Ratio:')
@@ -125,15 +203,7 @@ class MainWindow(QMainWindow):
         size_label = QLabel('Output Size:')
         self.output_size = QComboBox()
         self.output_size.setAccessibleName('Output Size')
-        self.output_size.setMaxVisibleItems(22)
-        group = ''
-        for preset in PRESETS:
-            if preset.group != group:
-                group = preset.group
-                self.output_size.insertSeparator(self.output_size.count())
-                self.output_size.addItem(group)
-                self.output_size.model().item(self.output_size.count() - 1).setEnabled(False)
-            self.output_size.addItem(preset.label, preset)
+        self.output_size.setMaxVisibleItems(10)
         size_label.setBuddy(self.output_size)
         size_column.addWidget(size_label)
         size_column.addWidget(self.output_size)
@@ -148,9 +218,9 @@ class MainWindow(QMainWindow):
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
         self.output_size.currentIndexChanged.connect(self.output_changed)
-        self.aspect.currentIndexChanged.connect(self.update_summary)
-        self.upscaling.toggled.connect(self.update_summary)
-        self.output_changed()
+        self.aspect.currentIndexChanged.connect(self.aspect_changed)
+        self.upscaling.toggled.connect(self.settings_changed)
+        self.aspect_changed()
         actions = QHBoxLayout()
         self.clear = QPushButton('Clear')
         self.clear.clicked.connect(self.clear_all)
@@ -176,8 +246,12 @@ class MainWindow(QMainWindow):
         self.setStyleSheet('''
             QWidget { background: #111827; color: #e5e7eb; font-family: "Segoe UI"; font-size: 13px; }
             QLabel#title { font-size: 28px; font-weight: 700; }
+            QLabel#sectionTitle { font-size: 16px; font-weight: 600; }
             QLabel#muted { color: #9ca3af; }
+            QLabel#previewDetails { color: #dbeafe; line-height: 1.5; }
             QFrame#dropArea { background: #172438; border: 2px dashed #507099; border-radius: 14px; }
+            QFrame#previewPanel { background: #172033; border: 1px solid #314057; border-radius: 8px; }
+            QFrame#previewCanvas { background: #0b1220; border: 1px solid #263449; border-radius: 5px; }
             QFrame#dropArea:hover, QFrame#dropArea:focus { border-color: #60a5fa; }
             QFrame#dropArea QLabel { background: transparent; border: none; }
             QLabel#dropTitle { font-size: 21px; font-weight: 600; }
@@ -203,39 +277,93 @@ class MainWindow(QMainWindow):
         return ProcessingOptions(self.aspect.currentData(), self.output_size.currentData(),
                                  self.upscaling.isChecked())
 
+    def aspect_changed(self):
+        current = self.output_size.currentData()
+        preferred = current.key if current and current.key in ('maximum', 'original') else None
+        self.populate_output_sizes(preferred)
+
+    def populate_output_sizes(self, preferred_key=None):
+        portrait = bool(self.preview.source_size and self.preview.source_size[1] > self.preview.source_size[0])
+        self.output_size.blockSignals(True)
+        self.output_size.clear()
+        selected_index = 0
+        for index, preset in enumerate(presets_for_ratio(self.aspect.currentText())):
+            label = preset.label
+            if portrait and preset.dimensions and preset.dimensions[0] != preset.dimensions[1]:
+                label = f'{preset.dimensions[1]} × {preset.dimensions[0]}'
+            self.output_size.addItem(label, preset)
+            if preset.key == preferred_key:
+                selected_index = index
+        self.output_size.setCurrentIndex(selected_index)
+        self.output_size.blockSignals(False)
+        self.output_changed()
+
     def output_changed(self):
         preset = self.output_size.currentData()
         if preset is None:
             return
-        self.aspect.blockSignals(True)
-        # Extra ratio labels exist only for exact, approximate-3:2 presets.
-        while self.aspect.count() > len(ASPECT_RATIOS):
-            self.aspect.removeItem(self.aspect.count() - 1)
-            self.aspect.setCurrentText('3:2')
-        if preset.dimensions:
-            index = self.aspect.findText(preset.aspect_label)
-            if index < 0:
-                self.aspect.addItem(preset.aspect_label, preset.ratio)
-                index = self.aspect.count() - 1
-            self.aspect.setCurrentIndex(index)
-        self.aspect.blockSignals(False)
-        self.aspect.setEnabled(not self.busy and preset.dimensions is None)
-        self.aspect.setToolTip('Exact preset sets this ratio. Select Original Resolution or Long Edge to choose freely.'
-                               if preset.dimensions else 'Automatically reversed for portrait images.')
-        self.upscaling.setEnabled(not self.busy and preset.key != 'original')
-        self.update_summary()
+        self.aspect.setEnabled(not self.busy)
+        self.aspect.setToolTip('Automatically reversed for portrait images.')
+        can_resize = preset.dimensions is not None or preset.long_edge is not None
+        self.upscaling.setEnabled(not self.busy and can_resize)
+        self.settings_changed()
 
-    def update_summary(self):
+    def settings_changed(self):
         preset = self.output_size.currentData()
         if preset is None:
             return
         parts = [self.aspect.currentText(), preset.label]
-        if preset.dimensions:
-            parts.append('Exact preset ratio · portrait dimensions reversed')
-        if preset.key != 'original':
+        if preset.dimensions is not None or preset.long_edge is not None:
             parts.append('Upscaling allowed' if self.upscaling.isChecked() else 'No upscaling')
         parts.append('JPEG maximum quality')
+        self.refresh_preview()
         self.summary.setText(' · '.join(parts))
+
+    def preview_selection_changed(self, current_row, _current_column, _previous_row, _previous_column):
+        self.load_preview(current_row)
+
+    def load_preview(self, row):
+        if row < 0 or row >= len(self.paths):
+            self.preview.canvas.clear_preview()
+            self.preview.source_size = None
+            self.preview.details.setText('Source: —\nCrop: —\nOutput: —')
+            return
+        try:
+            with Image.open(self.paths[row]) as source:
+                oriented = ImageOps.exif_transpose(source)
+                oriented.load()
+                source_size = oriented.size
+                thumbnail = oriented.copy()
+                thumbnail.thumbnail((1200, 900), Image.Resampling.LANCZOS)
+                pixmap = QPixmap.fromImage(ImageQt(thumbnail.convert('RGBA'))).copy()
+            previous_portrait = bool(self.preview.source_size and self.preview.source_size[1] > self.preview.source_size[0])
+            self.preview.source_size = source_size
+            self.preview.pixmap = pixmap
+            current_portrait = source_size[1] > source_size[0]
+            if previous_portrait != current_portrait:
+                preset = self.output_size.currentData()
+                self.populate_output_sizes(preset.key if preset else None)
+            else:
+                self.refresh_preview()
+        except Exception as exc:
+            self.preview.canvas.clear_preview()
+            self.preview.source_size = None
+            self.preview.details.setText(f'Preview unavailable\n{type(exc).__name__}: {exc}')
+
+    def refresh_preview(self):
+        source_size = self.preview.source_size
+        if not source_size or self.output_size.currentData() is None:
+            return
+        box = crop_box(*source_size, self.aspect.currentData())
+        cropped_size = box[2] - box[0], box[3] - box[1]
+        final_size, blocked = output_size(
+            cropped_size, self.current_options(), portrait=source_size[1] > source_size[0])
+        self.preview.canvas.set_preview(self.preview.pixmap, source_size, box)
+        suffix = ' (upscaling avoided)' if blocked else ''
+        self.preview.details.setText(
+            f'Source: {source_size[0]} × {source_size[1]}\n'
+            f'Crop: {cropped_size[0]} × {cropped_size[1]}\n'
+            f'Output: {final_size[0]} × {final_size[1]}{suffix}')
 
     def choose_input(self):
         menu = QMenu(self)
@@ -280,6 +408,8 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 0, item)
             self.table.setItem(row, 1, QTableWidgetItem('Ready'))
             self.paths.append(path)
+            if self.table.currentRow() < 0:
+                self.table.selectRow(row)
         for error in result.errors:
             self.log.appendPlainText(error)
 
@@ -300,6 +430,10 @@ class MainWindow(QMainWindow):
         self.paths.clear()
         self.skipped = self.scan_errors = 0
         self.table.setRowCount(0)
+        self.preview.canvas.clear_preview()
+        self.preview.source_size = None
+        self.preview.pixmap = None
+        self.preview.details.setText('Source: —\nCrop: —\nOutput: —')
         self.log.clear()
         self.progress.setValue(0)
         self.status.setText('Ready')

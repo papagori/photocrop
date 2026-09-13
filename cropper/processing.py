@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from .export import export_jpeg, jpeg_pixels
-from .geometry import crop_box, output_size, resampling_box
+from .geometry import crop_box, output_size
 from .settings import ProcessingOptions
 
 
@@ -29,7 +29,7 @@ def process_image(source, options=ProcessingOptions()):
             image = ImageOps.exif_transpose(original)
             image.load()
             before = image.size
-            box = crop_box(*before, options.effective_ratio, approximate=options.output.approximate)
+            box = crop_box(*before, options.effective_ratio)
             exif = image.getexif()
             exif.pop(274, None)
             cropped = image if box == (0, 0, *before) else image.crop(box)
@@ -39,8 +39,7 @@ def process_image(source, options=ProcessingOptions()):
                 # Convert palette/bilevel pixels before LANCZOS: Pillow otherwise
                 # forces NEAREST. Also flatten alpha before filtering onto white.
                 pixels, icc = jpeg_pixels(cropped)
-                final = pixels.resize(final_size, Image.Resampling.LANCZOS,
-                                      box=resampling_box(pixels.size, final_size), reducing_gap=None)
+                final = pixels.resize(final_size, Image.Resampling.LANCZOS, reducing_gap=None)
                 final.info = dict(cropped.info)
                 if icc:
                     final.info['icc_profile'] = icc

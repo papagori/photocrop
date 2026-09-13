@@ -50,18 +50,17 @@ def run(report_path):
             window.add_paths([root])
             wait_idle()
             assert len(window.paths) == 3
-            select_output('edge_1024')
             window.aspect.setCurrentText('16:9')
             for batch, key, upscaling, expected in (
-                (1, 'edge_1024', False, (592, 333)),
-                (2, 'edge_1024', True, (1024, 576)),
-                (3, 'exact_1200_800', True, (1200, 800)),
+                (1, 'maximum', False, (600, 338)),
+                (2, 'exact_1920_1080', True, (1920, 1080)),
+                (3, 'exact_2400_1600', True, (2400, 1600)),
             ):
+                if batch == 3:
+                    window.aspect.setCurrentText('3:2')
                 select_output(key)
                 window.upscaling.setChecked(upscaling)
-                if batch == 3:
-                    assert window.aspect.currentText() == '3:2'
-                    assert not window.aspect.isEnabled()
+                assert window.aspect.isEnabled()
                 window.process.click()
                 wait_idle()
                 assert (window.processed, window.errors) == (2, 1)
