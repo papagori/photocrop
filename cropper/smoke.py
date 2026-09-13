@@ -9,16 +9,27 @@ from pathlib import Path
 import PIL
 import PySide6
 from PIL import Image
+from PySide6.QtCore import QLibraryInfo
 from PySide6.QtWidgets import QApplication
 
 from .gui import MainWindow
+from .resources import resource_path
+from .version import __version__
 
 
 def run(report_path):
     report_path = Path(report_path).resolve()
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report = {'passed': False, 'frozen': bool(getattr(sys, 'frozen', False)),
-              'pillow': PIL.__version__, 'pyside6': PySide6.__version__, 'batches': []}
+    frozen = bool(getattr(sys, 'frozen', False))
+    report = {'passed': False, 'frozen': frozen, 'version': __version__,
+              'pillow': PIL.__version__, 'pyside6': PySide6.__version__, 'batches': [],
+              'runtime': {
+                  'executable': Path(sys.executable).name,
+                  'external_python_required': False,
+                  'icon_bundled': resource_path('assets/photocrop.ico').is_file(),
+                  'qt_plugins_available': Path(
+                      QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)).is_dir(),
+              }}
     app = QApplication.instance() or QApplication([])
     app.setStyle('Fusion')
     window = MainWindow()
@@ -40,6 +51,10 @@ def run(report_path):
         raise AssertionError(f'Missing preset {key}')
 
     try:
+        if frozen:
+            assert Path(sys.executable).name.lower() == 'photocropv2.exe'
+            assert report['runtime']['icon_bundled']
+            assert report['runtime']['qt_plugins_available']
         with tempfile.TemporaryDirectory(prefix='photo-crop-v2-') as directory:
             root = Path(directory) / 'Été 東京'
             root.mkdir()

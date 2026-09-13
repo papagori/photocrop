@@ -156,9 +156,11 @@ class GuiTests(unittest.TestCase):
                                Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
         self.app.sendEvent(window.drop, enter)
         self.assertTrue(enter.isAccepted())
+        self.assertTrue(window.drop.property('dragActive'))
         drop = QDropEvent(QPointF(20, 20), Qt.DropAction.CopyAction, mime,
                          Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
         self.app.sendEvent(window.drop, drop)
+        self.assertFalse(window.drop.property('dragActive'))
         self.wait_idle(window)
         self.assertEqual(len(window.paths), 3)
         window.process.click()

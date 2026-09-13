@@ -71,7 +71,7 @@ $env:QT_QPA_PLATFORM='offscreen'
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The tests cover crop geometry, every ratio-specific menu, portrait inversion, preview dimensions, EXIF orientation, metadata, supported formats, no-upscaling behavior, direct single-pass resizing, drag and drop, and background batches.
+The tests cover crop geometry, every ratio-specific menu, portrait inversion, preview dimensions, EXIF orientation, metadata, supported formats, no-upscaling behavior, direct single-pass resizing, drag and drop, background batches, and distribution configuration.
 
 ## Windows build
 
@@ -81,7 +81,17 @@ Run the existing build script:
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-The script installs build dependencies, runs the tests, creates `dist\PhotoCropV2.exe` with PyInstaller, and launches its built-in standalone verification. Build products, test artifacts, caches, and the virtual environment are ignored by Git.
+The script checks or installs the development dependencies, generates the shared application icon, runs the tests, builds `dist\PhotoCropV2.exe` from `PhotoCropV2.spec`, and launches its frozen self-test. When Inno Setup 6 is installed, it also builds `dist\PhotoCrop_Setup.exe` from `installer\PhotoCropV2.iss`.
+
+The release version is defined once in `cropper/version.py` and reused by the application, the Windows executable metadata, and the installer build. The optional installer distribution test performs a silent isolated install, runs the installed executable's frozen self-test, and uninstalls it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\test_installer.ps1
+```
+
+`PhotoCropV2.exe` is a PyInstaller one-file application. It contains Python, PySide6/Qt, Pillow, the required Qt plugins, the Visual C++ runtime DLLs used by the packaged modules, and the application icon. End users need only `PhotoCrop_Setup.exe`; they do not need Python, Pillow, PySide6, PyInstaller, Inno Setup, Visual Studio, or a separate Microsoft Visual C++ Redistributable installation.
+
+Build products, installer outputs, test artifacts, caches, and the virtual environment are ignored by Git.
 
 ## Project structure
 
@@ -93,6 +103,11 @@ The script installs build dependencies, runs the tests, creates `dist\PhotoCropV
 - `cropper/export.py`: JPEG color, metadata, and output handling.
 - `cropper/discovery.py`: input discovery and filtering.
 - `cropper/smoke.py`: packaged executable verification.
+- `cropper/version.py`: single application version source.
+- `assets/photocrop.ico`: shared Windows application and installer icon.
+- `PhotoCropV2.spec`: versioned PyInstaller configuration.
+- `installer/PhotoCropV2.iss`: Inno Setup installer configuration.
+- `tools/test_installer.ps1`: isolated install/run/uninstall distribution test.
 - `tests/`: automated test suite.
 
 ## License

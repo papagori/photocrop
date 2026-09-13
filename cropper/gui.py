@@ -2,7 +2,7 @@
 from PIL import Image, ImageOps
 from PIL.ImageQt import ImageQt
 from PySide6.QtCore import QRectF, Qt, QThread, Signal
-from PySide6.QtGui import QColor, QCursor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QMainWindow, QMenu, QPlainTextEdit, QProgressBar, QPushButton,
@@ -12,7 +12,9 @@ from PySide6.QtWidgets import (
 from .discovery import discover
 from .geometry import crop_box, output_size
 from .processing import process_image
+from .resources import resource_path
 from .settings import ASPECT_RATIOS, ProcessingOptions, presets_for_ratio
+from .version import __version__
 
 
 class Worker(QThread):
@@ -45,8 +47,10 @@ class DropArea(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName('Add files or folder')
-        self.setMinimumHeight(145)
+        self.setMinimumHeight(116)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title = QLabel('Drop files or folder here')
         title.setObjectName('dropTitle')
@@ -59,11 +63,23 @@ class DropArea(QFrame):
 
     def dragEnterEvent(self, event):
         if self.isEnabled() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            self.set_drag_active(True)
             event.acceptProposedAction()
 
+    def dragLeaveEvent(self, event):
+        self.set_drag_active(False)
+        event.accept()
+
     def dropEvent(self, event):
+        self.set_drag_active(False)
         self.paths_added.emit([url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()])
         event.acceptProposedAction()
+
+    def set_drag_active(self, active):
+        self.setProperty('dragActive', active)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -84,7 +100,7 @@ class PreviewCanvas(QFrame):
         self.pixmap = None
         self.source_size = None
         self.crop = None
-        self.setMinimumSize(260, 190)
+        self.setMinimumSize(260, 130)
         self.setObjectName('previewCanvas')
 
     def set_preview(self, pixmap, source_size, crop):
@@ -134,9 +150,11 @@ class PreviewPanel(QFrame):
         self.source_size = None
         self.pixmap = None
         self.setObjectName('previewPanel')
-        self.setMinimumWidth(300)
+        self.setMinimumWidth(310)
         layout = QVBoxLayout(self)
-        title = QLabel('Preview')
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+        title = QLabel('4 · Preview')
         title.setObjectName('sectionTitle')
         self.canvas = PreviewCanvas()
         self.details = QLabel('Source: —\nCrop: —\nOutput: —')
@@ -154,20 +172,33 @@ class MainWindow(QMainWindow):
         self.busy = False
         self.skipped = self.processed = self.errors = 0
         self.scan_errors = 0
-        self.setWindowTitle('Photo Crop — v2.0')
-        self.resize(980, 860)
-        self.setMinimumSize(780, 760)
+        self.setWindowTitle(f'PhotoCropV2 — {__version__}')
+        icon_path = resource_path('assets/photocrop.ico')
+        if icon_path.is_file():
+            self.setWindowIcon(QIcon(str(icon_path)))
+        self.resize(1040, 800)
+        self.setMinimumSize(860, 700)
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(30, 24, 30, 24)
-        layout.setSpacing(14)
-        title = QLabel('Photo Crop')
+        layout.setContentsMargins(26, 22, 26, 22)
+        layout.setSpacing(12)
+        header = QHBoxLayout()
+        header.setSpacing(10)
+        title = QLabel('PhotoCrop')
         title.setObjectName('title')
-        layout.addWidget(title)
+        version = QLabel(f'v{__version__}')
+        version.setObjectName('versionBadge')
+        header.addWidget(title)
+        header.addWidget(version)
+        header.addStretch()
+        layout.addLayout(header)
         subtitle = QLabel('Centered crop · Automatic orientation · Maximum JPEG quality')
         subtitle.setObjectName('muted')
         layout.addWidget(subtitle)
+        add_label = QLabel('1 · ADD IMAGES')
+        add_label.setObjectName('stepLabel')
+        layout.addWidget(add_label)
         self.drop = DropArea()
         self.drop.clicked.connect(self.choose_input)
         self.drop.paths_added.connect(self.add_paths)
@@ -182,15 +213,26 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().hide()
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setAlternatingRowColors(True)
         self.table.currentCellChanged.connect(self.preview_selection_changed)
         content = QHBoxLayout()
-        content.addWidget(self.table, 3)
+        content.setSpacing(12)
+        file_column = QVBoxLayout()
+        file_column.setSpacing(8)
+        file_title = QLabel('Selected files')
+        file_title.setObjectName('sectionTitle')
+        file_column.addWidget(file_title)
+        file_column.addWidget(self.table, 1)
+        content.addLayout(file_column, 3)
         self.preview = PreviewPanel()
         content.addWidget(self.preview, 2)
-        layout.addLayout(content, 1)
         settings = QHBoxLayout()
+        settings.setContentsMargins(14, 12, 14, 12)
+        settings.setSpacing(14)
         aspect_column = QVBoxLayout()
-        aspect_label = QLabel('Aspect Ratio:')
+        aspect_column.setSpacing(6)
+        aspect_label = QLabel('2 · Aspect Ratio')
         self.aspect = QComboBox()
         self.aspect.setAccessibleName('Aspect Ratio')
         for label, ratio in ASPECT_RATIOS.items():
@@ -200,7 +242,8 @@ class MainWindow(QMainWindow):
         aspect_column.addWidget(aspect_label)
         aspect_column.addWidget(self.aspect)
         size_column = QVBoxLayout()
-        size_label = QLabel('Output Size:')
+        size_column.setSpacing(6)
+        size_label = QLabel('3 · Output Size')
         self.output_size = QComboBox()
         self.output_size.setAccessibleName('Output Size')
         self.output_size.setMaxVisibleItems(10)
@@ -209,23 +252,32 @@ class MainWindow(QMainWindow):
         size_column.addWidget(self.output_size)
         settings.addLayout(aspect_column, 2)
         settings.addLayout(size_column, 3)
-        layout.addLayout(settings)
+        option_column = QVBoxLayout()
         self.upscaling = QCheckBox('Allow Upscaling')
         self.upscaling.setToolTip('Allow enlargement beyond the cropped image resolution.')
-        layout.addWidget(self.upscaling)
+        option_column.addStretch()
+        option_column.addWidget(self.upscaling)
+        settings.addLayout(option_column, 2)
+        settings_panel = QFrame()
+        settings_panel.setObjectName('settingsPanel')
+        settings_panel.setLayout(settings)
+        layout.addWidget(settings_panel)
         self.summary = QLabel()
         self.summary.setObjectName('muted')
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
+        layout.addLayout(content, 1)
         self.output_size.currentIndexChanged.connect(self.output_changed)
         self.aspect.currentIndexChanged.connect(self.aspect_changed)
         self.upscaling.toggled.connect(self.settings_changed)
         self.aspect_changed()
         actions = QHBoxLayout()
         self.clear = QPushButton('Clear')
+        self.clear.setMinimumWidth(96)
         self.clear.clicked.connect(self.clear_all)
         self.process = QPushButton('Process')
         self.process.setObjectName('primary')
+        self.process.setMinimumSize(150, 42)
         self.process.clicked.connect(self.start_processing)
         self.process.setEnabled(False)
         actions.addWidget(self.clear)
@@ -244,33 +296,54 @@ class MainWindow(QMainWindow):
         self.log.setPlaceholderText('Output paths and error details appear here.')
         layout.addWidget(self.log)
         self.setStyleSheet('''
-            QWidget { background: #111827; color: #e5e7eb; font-family: "Segoe UI"; font-size: 13px; }
-            QLabel#title { font-size: 28px; font-weight: 700; }
-            QLabel#sectionTitle { font-size: 16px; font-weight: 600; }
-            QLabel#muted { color: #9ca3af; }
-            QLabel#previewDetails { color: #dbeafe; line-height: 1.5; }
-            QFrame#dropArea { background: #172438; border: 2px dashed #507099; border-radius: 14px; }
-            QFrame#previewPanel { background: #172033; border: 1px solid #314057; border-radius: 8px; }
-            QFrame#previewCanvas { background: #0b1220; border: 1px solid #263449; border-radius: 5px; }
-            QFrame#dropArea:hover, QFrame#dropArea:focus { border-color: #60a5fa; }
+            QWidget { background: #0f172a; color: #e5e7eb; font-family: "Segoe UI"; font-size: 13px; }
+            QLabel#title { font-size: 27px; font-weight: 700; color: #f8fafc; }
+            QLabel#versionBadge { background: #1e3a5f; color: #93c5fd; border-radius: 9px;
+                                  font-size: 11px; font-weight: 600; padding: 3px 8px; }
+            QLabel#sectionTitle { font-size: 15px; font-weight: 600; color: #f1f5f9; }
+            QLabel#stepLabel { color: #7dd3fc; font-size: 11px; font-weight: 700; }
+            QLabel#muted { color: #94a3b8; }
+            QLabel#previewDetails { color: #cbd5e1; font-family: "Cascadia Mono", "Consolas";
+                                    font-size: 12px; line-height: 1.5; }
+            QFrame#settingsPanel, QFrame#previewPanel { background: #172033;
+                border: 1px solid #2b3b52; border-radius: 10px; }
+            QFrame#settingsPanel QLabel, QFrame#settingsPanel QCheckBox { background: transparent; }
+            QFrame#previewPanel QLabel { background: transparent; border: none; }
+            QFrame#previewCanvas { background: #080f1d; border: 1px solid #26364d; border-radius: 6px; }
+            QFrame#dropArea { background: #152238; border: 1px dashed #55708f; border-radius: 10px; }
+            QFrame#dropArea:hover, QFrame#dropArea:focus { background: #182943; border-color: #60a5fa; }
+            QFrame#dropArea[dragActive="true"] { background: #193457; border: 2px solid #60a5fa; }
             QFrame#dropArea QLabel { background: transparent; border: none; }
-            QLabel#dropTitle { font-size: 21px; font-weight: 600; }
-            QPushButton { background: #263449; border: 1px solid #40516a; border-radius: 7px; padding: 10px 25px; }
-            QPushButton:hover { background: #334660; }
-            QPushButton#primary { background: #2563eb; border-color: #3b82f6; font-weight: 600; }
-            QPushButton#primary:hover { background: #3478f6; }
-            QPushButton:disabled { background: #202b3c; color: #64748b; border-color: #29364b; }
-            QTableWidget, QPlainTextEdit { background: #172033; border: 1px solid #314057; border-radius: 6px; gridline-color: #29364b; }
-            QHeaderView::section { background: #233047; border: none; padding: 8px; }
-            QTableWidget::item { padding: 5px; }
-            QProgressBar { border: none; border-radius: 5px; background: #263449; text-align: center; min-height: 18px; }
-            QProgressBar::chunk { background: #2563eb; border-radius: 5px; }
-            QMenu { background: #263449; padding: 6px; }
+            QLabel#dropTitle { color: #f8fafc; font-size: 19px; font-weight: 600; }
+            QPushButton { background: #233248; border: 1px solid #3a4b63; border-radius: 7px;
+                          min-height: 20px; padding: 8px 20px; }
+            QPushButton:hover { background: #2d405b; border-color: #536a89; }
+            QPushButton:focus { border-color: #60a5fa; }
+            QPushButton#primary { background: #2563eb; border-color: #3b82f6; color: white;
+                                  font-size: 14px; font-weight: 700; }
+            QPushButton#primary:hover { background: #3478f6; border-color: #60a5fa; }
+            QPushButton:disabled { background: #1b2638; color: #64748b; border-color: #273449; }
+            QTableWidget, QPlainTextEdit { background: #151f31; alternate-background-color: #182438;
+                border: 1px solid #2b3b52; border-radius: 7px; gridline-color: #26364d;
+                selection-background-color: #1d4ed8; selection-color: white; }
+            QHeaderView::section { background: #1e2c42; color: #cbd5e1; border: none;
+                                   border-bottom: 1px solid #33445d; padding: 8px; font-weight: 600; }
+            QTableWidget::item { padding: 6px; }
+            QTableWidget::item:selected { background: #1d4ed8; color: white; }
+            QProgressBar { border: none; border-radius: 4px; background: #243249;
+                           color: #e2e8f0; text-align: center; min-height: 17px; }
+            QProgressBar::chunk { background: #3b82f6; border-radius: 4px; }
+            QMenu { background: #223047; border: 1px solid #3b4d66; padding: 6px; }
             QMenu::item { padding: 8px 24px; }
             QMenu::item:selected { background: #2563eb; }
-            QComboBox { background: #233047; border: 1px solid #506079; border-radius: 6px; padding: 8px 10px; }
-            QComboBox:disabled { color: #a0aec0; background: #1d293b; }
-            QComboBox QAbstractItemView { background: #233047; selection-background-color: #2563eb; min-width: 350px; }
+            QComboBox { background: #202d43; border: 1px solid #465a74; border-radius: 6px;
+                        min-height: 22px; padding: 7px 10px; }
+            QComboBox:hover, QComboBox:focus { border-color: #60a5fa; }
+            QComboBox:disabled { color: #718096; background: #1a2537; border-color: #2b394d; }
+            QComboBox QAbstractItemView { background: #223047; border: 1px solid #465a74;
+                selection-background-color: #2563eb; min-width: 350px; padding: 4px; }
+            QCheckBox { spacing: 8px; }
+            QCheckBox::indicator { width: 17px; height: 17px; }
         ''')
 
     def current_options(self):
@@ -500,6 +573,13 @@ class MainWindow(QMainWindow):
 
 def run():
     app = QApplication.instance() or QApplication([])
+    app.setApplicationName('PhotoCropV2')
+    app.setApplicationDisplayName('PhotoCropV2')
+    app.setApplicationVersion(__version__)
+    app.setOrganizationName('PhotoCrop')
+    icon_path = resource_path('assets/photocrop.ico')
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
     app.setStyle('Fusion')
     window = MainWindow()
     window.show()
