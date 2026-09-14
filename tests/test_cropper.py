@@ -9,7 +9,7 @@ from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QApplication
 
-from cropper.discovery import discover
+from cropper.discovery import OUTPUT_DIR, discover
 from cropper.processing import crop_box, process_image
 from cropper.gui import MainWindow
 
@@ -98,10 +98,14 @@ class ImageTests(unittest.TestCase):
         nested.mkdir()
         Image.new('RGB', (40, 30)).save(nested / '日本.png')
         process_image(path)
+        legacy = self.root / '4x3_cropped'
+        legacy.mkdir()
+        Image.new('RGB', (40, 30)).save(legacy / 'legacy.jpg')
         flat = discover([self.root])
         self.assertEqual(flat.files, [path.resolve()])
         recursive = discover([self.root, path], recursive=True)
         self.assertEqual(len(recursive.files), 2)
+        self.assertFalse(any(OUTPUT_DIR in str(p) for p in recursive.files))
         self.assertFalse(any('4x3_cropped' in str(p) for p in recursive.files))
         self.assertEqual(discover([self.root], existing=recursive.files).files, [])
 
@@ -123,7 +127,7 @@ class ImageTests(unittest.TestCase):
         for path in discover([first, second]).files:
             result = process_image(path)
             self.assertFalse(result.error)
-            self.assertEqual(result.output.parent, path.parent / '4x3_cropped')
+            self.assertEqual(result.output.parent, path.parent / OUTPUT_DIR)
             self.assertEqual(result.output.name, 'same.jpg')
 
     def test_multipage_and_high_bit_depth_report_errors(self):
@@ -144,7 +148,7 @@ class GuiTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_gui_drop_worker_and_batch(self):
-        window = MainWindow()
+        window = MainWindow(language='en')
         window.show()
         first = self.make('photo.jpg')
         second = self.make('vertical.png', (30, 45))
@@ -156,9 +160,11 @@ class GuiTests(unittest.TestCase):
                                Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
         self.app.sendEvent(window.drop, enter)
         self.assertTrue(enter.isAccepted())
+        self.assertTrue(window.drop.property('dragActive'))
         drop = QDropEvent(QPointF(20, 20), Qt.DropAction.CopyAction, mime,
                          Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
         self.app.sendEvent(window.drop, drop)
+        self.assertFalse(window.drop.property('dragActive'))
         self.wait_idle(window)
         self.assertEqual(len(window.paths), 3)
         window.process.click()

@@ -1,6 +1,6 @@
 # PhotoCropV2
 
-A lightweight Python desktop app for batch cropping and resizing images with selectable aspect ratios, live crop preview, standard output sizes, drag-and-drop support, and high-quality JPEG export.
+A lightweight bilingual desktop app for batch cropping and resizing images with selectable aspect ratios, live crop preview, standard output sizes, drag-and-drop support, and JPEG, PNG, or TGA export.
 
 PhotoCropV2 uses PySide6 and Pillow. Batch processing runs in a background thread, and the original files are never modified.
 
@@ -17,8 +17,14 @@ PhotoCropV2 uses PySide6 and Pillow. Batch processing runs in a background threa
 - One direct LANCZOS resize after cropping when a resize is requested.
 - A live preview of the selected image showing Source, Crop, and Output before processing.
 - A dark overlay showing exactly which areas the crop will remove.
+- JPEG uses quality 100, 4:4:4 sampling, and optimization. PNG is lossless, and PNG/TGA retain source alpha.
 - ICC profiles and relevant EXIF metadata are retained where supported.
-- High-quality JPEG export to a dedicated folder beside each source folder.
+- English, French, and Japanese UI with a remembered in-app language selector.
+- Dark, Light, and Classic themes, remembered between sessions.
+- Compact themed toggles, restrained icons, and a GPL/GitHub footer.
+- High-contrast dropdown fields with explicit arrow buttons and focus/open states.
+- A dedicated original low-color pixel icon set used only by the Classic theme.
+- Optional opening of the first output folder once after a successful batch.
 
 ## Requirements and installation
 
@@ -39,7 +45,7 @@ Run the application with:
 
 ## Output presets
 
-The Output Size menu is rebuilt whenever the aspect ratio changes, so an incompatible size cannot be selected. Each cropped ratio begins with **Maximum Resolution — Keep Maximum Pixels**, followed by standard resolutions tailored to that ratio. Portrait images display and export the same presets with their dimensions reversed.
+The Output Size menu is rebuilt whenever the aspect ratio changes, so an incompatible size cannot be selected. Each cropped ratio begins with **Maximum Resolution — Keep Maximum Pixels**, followed by standard resolutions tailored to that ratio. The 1:1 catalog provides the texture-friendly 1024, 2048, 4096, and 8192 square sizes. Portrait images display and export non-square presets with their dimensions reversed.
 
 Selecting **Original** never crops. It offers Original Resolution and 2000, 3000, 4000, 5000, 6000, or 8000 px long-edge choices.
 
@@ -52,7 +58,7 @@ If a requested size is larger than the available cropped image, PhotoCropV2 reta
 3. Keep **Maximum Resolution** or select a compatible output size.
 4. Check the crop preview.
 5. Click **Process**.
-6. Retrieve the exported JPEG files.
+6. Retrieve the exported JPEG, PNG, or TGA files.
 
 ## Processing details
 
@@ -60,9 +66,9 @@ The default is 4:3 at Maximum Resolution. Portrait sources automatically use the
 
 EXIF orientation is applied before PhotoCropV2 determines whether an image is landscape or portrait. Compatible ICC profiles and relevant EXIF metadata are retained when Pillow supports them.
 
-Outputs are saved in a `4x3_cropped` folder beside each source image. This historical folder name is used for every ratio. Existing names receive `_2`, `_3`, and subsequent suffixes. Generated output folders are excluded from input scanning.
+Outputs are saved in a `PhotoCrop_Export` folder beside each source image, for every ratio, size, format, and orientation. Existing names receive `_2`, `_3`, and subsequent suffixes. Current and legacy generated output folders are excluded from input scanning.
 
-Supported inputs are JPG/JPEG, PNG, TIFF/TIF, and WEBP. Animated images, multipage TIFF files, and 16/32-bit images are reported as errors. Transparency is composited onto white for JPEG output.
+Supported inputs are JPG/JPEG, PNG, TIFF/TIF, and WEBP. Animated images and multipage TIFF files are reported as errors. Transparency is composited onto white for JPEG output and retained for PNG/TGA output. JPEG remains the default format.
 
 ## Tests
 
@@ -71,7 +77,7 @@ $env:QT_QPA_PLATFORM='offscreen'
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The tests cover crop geometry, every ratio-specific menu, portrait inversion, preview dimensions, EXIF orientation, metadata, supported formats, no-upscaling behavior, direct single-pass resizing, drag and drop, and background batches.
+The tests cover crop geometry, all square texture presets, portrait inversion, preview dimensions, EXIF orientation, metadata, JPEG/PNG/TGA and alpha handling, no-upscaling behavior, direct single-pass resizing, both UI languages, output-folder timing, drag and drop, background batches, and distribution configuration.
 
 ## Windows build
 
@@ -81,7 +87,17 @@ Run the existing build script:
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-The script installs build dependencies, runs the tests, creates `dist\PhotoCropV2.exe` with PyInstaller, and launches its built-in standalone verification. Build products, test artifacts, caches, and the virtual environment are ignored by Git.
+The script checks or installs the development dependencies, generates the shared application icon, runs the tests, builds `dist\PhotoCropV2.exe` from `PhotoCropV2.spec`, and launches its frozen self-test. When Inno Setup 6 is installed, it also builds `dist\PhotoCrop_Setup.exe` from `installer\PhotoCropV2.iss`.
+
+The release version is defined once in `cropper/version.py` and reused by the application, the Windows executable metadata, and the installer build. The optional installer distribution test performs a silent isolated install, runs the installed executable's frozen self-test, and uninstalls it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\test_installer.ps1
+```
+
+`PhotoCropV2.exe` is a PyInstaller one-file application. It contains Python, PySide6/Qt, Pillow, the required Qt plugins, the Visual C++ runtime DLLs used by the packaged modules, and the application icon. End users need only `PhotoCrop_Setup.exe`; they do not need Python, Pillow, PySide6, PyInstaller, Inno Setup, Visual Studio, or a separate Microsoft Visual C++ Redistributable installation.
+
+Build products, installer outputs, test artifacts, caches, and the virtual environment are ignored by Git.
 
 ## Project structure
 
@@ -90,9 +106,15 @@ The script installs build dependencies, runs the tests, creates `dist\PhotoCropV
 - `cropper/settings.py`: ratio-specific output catalog and processing options.
 - `cropper/geometry.py`: crop and output dimension calculations.
 - `cropper/processing.py`: image processing pipeline.
-- `cropper/export.py`: JPEG color, metadata, and output handling.
+- `cropper/export.py`: JPEG/PNG/TGA color, alpha, metadata, and output handling.
+- `cropper/i18n.py`: English/French application text catalog.
 - `cropper/discovery.py`: input discovery and filtering.
 - `cropper/smoke.py`: packaged executable verification.
+- `cropper/version.py`: single application version source.
+- `assets/photocrop.ico`: shared Windows application and installer icon.
+- `PhotoCropV2.spec`: versioned PyInstaller configuration.
+- `installer/PhotoCropV2.iss`: Inno Setup installer configuration.
+- `tools/test_installer.ps1`: isolated install/run/uninstall distribution test.
 - `tests/`: automated test suite.
 
 ## License

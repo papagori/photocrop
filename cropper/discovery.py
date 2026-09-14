@@ -3,8 +3,13 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .i18n import tr
+
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.webp'}
-OUTPUT_DIR = '4x3_cropped'
+OUTPUT_DIR = 'PhotoCrop_Export'
+# Keep legacy export folders out of recursive input discovery. Existing folders
+# are intentionally left untouched; only new exports use OUTPUT_DIR.
+EXCLUDED_OUTPUT_DIRS = frozenset({OUTPUT_DIR.casefold(), '4x3_cropped'.casefold()})
 
 
 @dataclass
@@ -14,7 +19,7 @@ class Discovery:
     errors: list[str] = field(default_factory=list)
 
 
-def discover(paths, recursive=False, existing=()):
+def discover(paths, recursive=False, existing=(), language='en'):
     result = Discovery()
     seen = {os.path.normcase(str(Path(p).resolve())) for p in existing}
 
@@ -32,16 +37,16 @@ def discover(paths, recursive=False, existing=()):
             if path.is_file():
                 add(path)
             elif path.is_dir():
-                if path.name.casefold() == OUTPUT_DIR.casefold():
+                if path.name.casefold() in EXCLUDED_OUTPUT_DIRS:
                     result.skipped += 1
                     continue
                 for base, dirs, files in os.walk(path, onerror=lambda e: result.errors.append(str(e))):
-                    dirs[:] = sorted(d for d in dirs if recursive and d.casefold() != OUTPUT_DIR.casefold()
+                    dirs[:] = sorted(d for d in dirs if recursive and d.casefold() not in EXCLUDED_OUTPUT_DIRS
                                      and not (Path(base) / d).is_symlink())
                     for name in sorted(files):
                         add(Path(base) / name)
             else:
-                result.errors.append(f'Not found: {path}')
+                result.errors.append(tr('error_not_found', language, path=path))
         except OSError as exc:
             result.errors.append(f'{path}: {exc}')
     return result

@@ -22,6 +22,7 @@ ENV/
 build/
 dist/
 *.spec
+!PhotoCropV2.spec
 *.egg-info/
 .eggs/
 # Generated tests, exports and independent backups
