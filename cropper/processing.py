@@ -1,11 +1,12 @@
-"""EXIF orientation, centered crop, optional single resize, and JPEG export."""
+"""EXIF orientation, centered crop, optional single resize, and image export."""
 from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from .export import export_jpeg, jpeg_pixels
+from .export import export_image, pixels_for_resize
 from .geometry import crop_box, output_size
+from .i18n import tr
 from .settings import ProcessingOptions
 
 
@@ -25,7 +26,7 @@ def process_image(source, options=ProcessingOptions()):
     try:
         with Image.open(source) as original:
             if getattr(original, 'n_frames', 1) > 1:
-                raise ValueError('Multi-page/animated image is not supported; export a single frame first.')
+                raise ValueError(tr('error_multipage', options.language))
             image = ImageOps.exif_transpose(original)
             image.load()
             before = image.size
@@ -36,9 +37,9 @@ def process_image(source, options=ProcessingOptions()):
             final_size, blocked = output_size(cropped.size, options, portrait=before[1] > before[0])
             final = cropped
             if final_size != cropped.size:
-                # Convert palette/bilevel pixels before LANCZOS: Pillow otherwise
-                # forces NEAREST. Also flatten alpha before filtering onto white.
-                pixels, icc = jpeg_pixels(cropped)
+                # Convert only as required by the selected format, then perform
+                # the one and only resize directly with LANCZOS.
+                pixels, icc = pixels_for_resize(cropped, options.output_format, options.language)
                 final = pixels.resize(final_size, Image.Resampling.LANCZOS, reducing_gap=None)
                 final.info = dict(cropped.info)
                 if icc:
@@ -55,7 +56,7 @@ def process_image(source, options=ProcessingOptions()):
             if 34665 in exif:
                 details = exif.get_ifd(34665)
                 details[40962], details[40963] = final.size
-            output = export_jpeg(final, source, exif)
+            output = export_image(final, source, exif, options.output_format, options.language)
             return Result(source, output, before, final.size, cropped_size=cropped.size,
                           upscaling_blocked=blocked)
     except Exception as exc:

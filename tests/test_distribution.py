@@ -30,12 +30,26 @@ class DistributionConfigurationTests(unittest.TestCase):
         self.assertIn("name='PhotoCropV2'", spec)
 
     def test_inno_setup_installs_only_the_bundled_executable(self):
-        script = (ROOT / 'installer' / 'PhotoCropV2.iss').read_text(encoding='utf-8')
+        script_path = ROOT / 'installer' / 'PhotoCropV2.iss'
+        self.assertTrue(script_path.read_bytes().startswith(b'\xef\xbb\xbf'))
+        script = script_path.read_text(encoding='utf-8-sig')
         self.assertIn('Source: "..\\dist\\{#AppExeName}"', script)
         self.assertIn('UninstallDisplayIcon={app}\\{#AppExeName}', script)
         self.assertIn('Tasks: desktopicon', script)
+        self.assertIn('Name: "french"', script)
+        self.assertIn('Name: "japanese"', script)
+        self.assertIn('JapaneseOverrides.isl', script)
+        self.assertIn("FontExists('Yu Gothic UI')", script)
+        self.assertIn('japanese.DesktopShortcut=\u30c7\u30b9\u30af\u30c8\u30c3\u30d7\u306b\u30b7\u30e7\u30fc\u30c8\u30ab\u30c3\u30c8\u3092\u4f5c\u6210\u3059\u308b', script)
+        self.assertIn('ValueName: "language"', script)
+        self.assertIn("if ActiveLanguage = 'french'", script)
+        self.assertIn("if ActiveLanguage = 'japanese'", script)
         self.assertNotIn('file association', script.lower())
         self.assertIsNone(re.search(r'\b(python|pip|pyinstaller|iscc)\.exe\b', script, re.I))
+
+        overrides = (ROOT / 'installer' / 'JapaneseOverrides.isl').read_text(encoding='utf-8')
+        self.assertIn('DialogFontName=Yu Gothic UI', overrides)
+        self.assertIn('WelcomeFontName=Yu Gothic UI', overrides)
 
 
 if __name__ == '__main__':

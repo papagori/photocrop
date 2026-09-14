@@ -25,7 +25,7 @@ MAXIMUM = OutputPreset('maximum', 'Maximum Resolution — Keep Maximum Pixels')
 ORIGINAL = OutputPreset('original', 'Original Resolution')
 
 _STANDARD_DIMENSIONS = {
-    '1:1': ((2000, 2000), (3000, 3000), (4000, 4000), (5000, 5000), (6000, 6000)),
+    '1:1': ((1024, 1024), (2048, 2048), (4096, 4096), (8192, 8192)),
     '3:2': ((2400, 1600), (3000, 2000), (3600, 2400), (4500, 3000),
             (6000, 4000), (7500, 5000)),
     '4:3': ((2400, 1800), (3200, 2400), (4000, 3000), (4800, 3600),
@@ -65,6 +65,8 @@ class ProcessingOptions:
     aspect_ratio: tuple[int, int] | None = (4, 3)
     output: OutputPreset = MAXIMUM
     allow_upscaling: bool = False
+    output_format: str = 'JPEG'
+    language: str = 'en'
 
     @property
     def effective_ratio(self):

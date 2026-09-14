@@ -11,9 +11,11 @@ $env:QT_QPA_PLATFORM='offscreen'
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-All **22 tests passed**. Coverage includes crop and resize geometry, dynamic ratio-specific presets, portrait inversion, no-upscaling behavior, one-pass LANCZOS resizing, metadata and color handling, input discovery, Qt drag and drop, preview dimensions, worker batches, and Windows distribution configuration.
+All **34 tests passed**. Coverage includes crop and resize geometry, the 1024/2048/4096/8192 square presets, portrait inversion, upscaling on/off, one-pass LANCZOS resizing, JPEG/PNG/TGA export, PNG/TGA alpha, metadata and color handling, English/French/Japanese UI, Dark/Light/Classic themes, language and theme persistence, stable panel geometry, emphasized dropdowns, Classic-only pixel icons, themed toggles, GPL footer, GitHub link dispatch, output-folder timing, input discovery, Qt drag and drop, preview dimensions, worker batches, and Windows distribution configuration. A dedicated matrix verifies that 1:1, 4:3, and 16:9 exports in JPEG, PNG, and TGA all use `PhotoCrop_Export`.
 
-The image-processing behavior was not changed during the Windows UI and packaging work.
+New exports are written beside each source folder under `PhotoCrop_Export`. Collision suffixing remains active, source originals remain untouched, and both the current directory and legacy `4x3_cropped` directories are excluded from recursive discovery. The batch completion test confirms that Explorer receives the first processed group's `PhotoCrop_Export` path once, after processing finishes.
+
+The centered crop and preview geometry remain shared, and every requested resize still uses one direct LANCZOS pass.
 
 ## Frozen executable
 
@@ -21,12 +23,12 @@ The image-processing behavior was not changed during the Windows UI and packagin
 
 - `passed: true`
 - `frozen: true`
-- version `2.0.0`
+- version `2.2.2`
 - bundled application icon found
 - Qt plugin directory found
 - no external Python required
 
-The three frozen processing batches produced the expected landscape and portrait outputs and continued correctly after a deliberately corrupt input.
+The frozen self-test verified the three languages, three themes, footer, and GitHub target. Its five processing batches produced the expected landscape and portrait outputs in JPEG, PNG, and TGA and continued correctly after a deliberately corrupt input.
 
 Archive inspection confirmed that the executable contains:
 
@@ -42,7 +44,11 @@ The outer executable imports only standard Windows system libraries such as KERN
 
 ## Installer
 
-Inno Setup produced `dist\PhotoCrop_Setup.exe`. The installer was tested with a silent isolated installation under `test-results`, without using the development virtual environment. The installed `PhotoCropV2.exe` passed the same frozen self-test, the uninstaller was present, and silent uninstallation removed the test installation directory completely.
+Inno Setup produced `dist\PhotoCrop_Setup.exe` with English, French, and Japanese choices. A fresh choice initializes the application language through its normal persisted setting. The installer was tested with a silent isolated installation under the system temporary directory, without using the development virtual environment. The installed `PhotoCropV2.exe` passed the same frozen self-test, the uninstaller was present, and silent uninstallation removed the test installation directory completely.
+
+## Visual review
+
+Native Windows captures were generated for empty and populated/preview states in all three themes. The reviewed combinations were Dark/English, Light/French, and Classic/Japanese. Additional Light captures verify the focused dropdown and its open menu. Header controls, settings, file list, preview, progress, status, log, and footer retain stable alignment between empty and populated states. Classic uses its own original low-color pixel icons; Dark and Light continue to use the modern Qt/Windows set.
 
 Inno Setup is required only on the development machine to compile the installer. It is not installed or invoked on an end-user machine.
 
